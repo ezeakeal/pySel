@@ -2,7 +2,6 @@
 import sys, os, re, textwrap
 sys.path.append( os.path.join(os.path.dirname(__file__), "../lib" ))
 
-import pysel_core       as core
 import pysel_directives as directives
 
 import traceback
@@ -12,13 +11,16 @@ import readline
 import texttable as tt
 from colorama import Fore, Back, Style
 
+import pysel_util_core    as util_core
+
 try:
   import json
 except ImportError:
   import simplejson as json
 
 ############ GLOBALS #################
-
+DRIVER        =None
+TEST_BASE_DIR =None
 ############ INITIAL #################
 readline.parse_and_bind("tab: complete")
 
@@ -115,7 +117,7 @@ def _createSelector():
     print "Current Selector: %s" % selector
     print "Searching for element...",
     try:
-      elements = directives._getObject(core.DRIVER, selector, 3)
+      elements = directives._getObject(DRIVER, selector, 3)
       print Style.BRIGHT + Fore.GREEN + "Element Found!" + Style.RESET_ALL
     
     except Exception, e:
@@ -144,9 +146,9 @@ def _execStep(step):
   methodToCall = getattr(directives, stepType)
   try:
     result = methodToCall(stepData)
-    return core.PYSEL_OK, result
+    return result
   except Exception, e:
-    return core.PYSEL_SEV5, e
+    return e
 
 ######################################################################
 # Draws a Step
@@ -225,7 +227,7 @@ def _createStep():
 ######################################################################
 # Add a step to the test
 ######################################################################
-def create_add(testObject, util_test):
+def create_add(testObject):
   step = _createStep()
   if step:
     testObject["steps"].append(step)
@@ -234,14 +236,14 @@ def create_add(testObject, util_test):
 ######################################################################
 # Insert a step to the test
 ######################################################################
-def create_exec(testObject, util_test):
+def create_exec(testObject):
   execObject = testObject
   
   os.system('clear')
   _displayBanner("EXEC", Style.BRIGHT + Fore.RED)
 
   print "\nCurrent Test:"
-  core.displayTest(testObject)
+  util_core.displayTest(testObject)
 
   print "\nPlease Enter the Range of Steps to execute:"
   startIndex = max(int(raw_input("Enter number of first step: "))-1, 0)
@@ -252,7 +254,7 @@ def create_exec(testObject, util_test):
   os.system('clear')
   _displayBanner("EXEC", Style.BRIGHT + Fore.RED)
   print "\nCurrent Test:"
-  core.displayTest(execObject)
+  util_core.displayTest(execObject)
 
   choices = ["execute"]
   choice = _promptChoice(choices)
@@ -260,14 +262,14 @@ def create_exec(testObject, util_test):
   testSteps = testObject.get('steps')
   if choice and choice == "execute":
     for step in testSteps:
-      status, output = util_test.manageStep(step)
+      status = _execStep(step)
 
   return testObject
 
 ######################################################################
 # Insert a step to the test
 ######################################################################
-def create_import(testObject, util_test):
+def create_import(testObject):
   defaultObject = testObject
   importData    = {"steps": []}
   while True:
@@ -275,7 +277,7 @@ def create_import(testObject, util_test):
     _displayBanner("IMPORT", Style.BRIGHT + Fore.BLUE)
     _displayHelp("import")
     print "\nCurrent Import Data:"
-    core.displayTest(importData)
+    util_core.displayTest(importData)
 
     choices = ["open", "setRange", "importData"]
     choice = _promptChoice(choices)
@@ -284,15 +286,15 @@ def create_import(testObject, util_test):
       return defaultObject
     # OPEN: display available files for import
     if choice == "open":
-      testList = core.getTestList()
-      core.drawTestTable(testList)
+      testList = util_core.getTestList(TEST_BASE_DIR)
+      util_core.drawTestTable(testList)
       testIndex = int(raw_input("Enter Number of test to import: "))-1
       print Fore.YELLOW + "Loading Test.." + Style.RESET_ALL
       try:
         testPath = testList[testIndex]
-        importData = util_test.loadTestfile(testPath)
+        importData = util_core.loadTestfile(testPath)
       except Exception, e:
-        core.raiseError("Error loading test", e)
+        raiseError("Error loading test", e)
     
     # SETRANGE: Prunes the steps of importData to the range specified
     if choice == "setRange":
@@ -308,9 +310,9 @@ def create_import(testObject, util_test):
       _displayBanner("IMPORT", Style.BRIGHT + Fore.BLUE)
       
       print "\nCurrent Test:"
-      core.displayTest(testObject)
+      util_core.displayTest(testObject)
       print "\nCurrent Import Data:"
-      core.displayTest(importData)
+      util_core.displayTest(importData)
       
       posChoices = ["before", "after"]
       choice = _promptChoice(posChoices, lType="Insert_Position")
@@ -327,13 +329,13 @@ def create_import(testObject, util_test):
           _displayBanner("IMPORT", Style.BRIGHT + Fore.BLUE)
           print Fore.GREEN + "Import Successful!"
           print "\nCurrent Test:"
-          core.displayTest(testObject)
+          util_core.displayTest(testObject)
           comChoices = ["commit"]
           comChoice = _promptChoice(comChoices)
           if comChoice and comChoice == "commit":
             return testObject
         except Exception, e:
-          core.raiseError("Error importing test!", e)
+          raiseError("Error importing test!", e)
 
     if choice =="commit":
       return testObject
@@ -341,7 +343,7 @@ def create_import(testObject, util_test):
 ######################################################################
 # Insert a step to the test
 ######################################################################
-def create_review(testObject, util_test):
+def create_review(testObject):
   defaultObject = testObject
   while True:
     os.system('clear')
@@ -349,7 +351,7 @@ def create_review(testObject, util_test):
     _displayHelp("review")
 
     print "\nCurrent Test:"
-    core.displayTest(testObject)
+    util_core.displayTest(testObject)
     choices = ["delete", "commit"]
     choice = _promptChoice(choices)
 
@@ -362,36 +364,54 @@ def create_review(testObject, util_test):
       try:
         del testObject["steps"][stepDel]
       except Exception, e:
-        core.raiseError("Error deleteing step (%s)" % stepDel, e)
+        raiseError("Error deleteing step (%s)" % stepDel, e)
     
 ######################################################################
 # Insert a step to the test
 ######################################################################
-def create_save(testObject, util_test):
+def create_save(testObject):
   os.system('clear')
   _displayBanner("SAVE", Style.BRIGHT + Fore.BLUE)
-  test_name = raw_input("Test Name: ")
-  if not test_name.endswith('.json'):
-    test_name = "%s.json" % test_name
+  
+  test_path = ""
+  while True:
+    test_path = raw_input("Full Path of Save: ")
+    dirOfTest = os.path.dirname(test_path)
+    if os.path.exists(dirOfTest):
+      break
+    else:
+      print "Directory (%s) does not exist." % dirOfTest
+
+  if not test_path.endswith('.json'):
+    test_path = "%s.json" % test_path
 
   try:
     testText = json.dumps(testObject, indent=2)
-    testFile = open(os.path.join(core.DIR_TEST, test_name), 'w')
+    testFile = open(test_path, 'w')
     testFile.write(testText)
     testFile.close()
     print Fore.GREEN + "Success!" + Style.RESET_ALL
     raw_input("Continue..")
 
   except Exception, e:
-    core.raiseError("Error saving file!", e)
+    raiseError("Error saving file!", e)
   return testObject
 
 ######################################################################
-# Insert a step to the test
+# Raise an Error in the manner which you are acustomed to
 ######################################################################
-def create_quit(testObject, util_test):
-  core.quitDriver()
-  exit(0)
+def raiseError(strext, data=None):
+  print Fore.RED + "\nError: %s " % strext
+  if data:
+    print Fore.CYAN + json.dumps(data, sort_keys=True, indent=4)
+
+######################################################################
+# Raise a Warning for the craic
+######################################################################
+def raiseWarning(strext, data=None):
+  print Fore.YELLOW + "\nWarning: %s " % strext
+  if data:
+    print Fore.CYAN + json.dumps(data, sort_keys=True, indent=4)
 
 # ------------------------------------------
 # Class for autocompletion

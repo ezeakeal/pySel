@@ -5,5 +5,5 @@ Python-based framework around Selenium2
 iBus interface for my E46 BMW written in Python
 
 ## Notes
-* You WILL need to place chromedriver from [here](https://code.google.com/p/chromedriver/) in the *lib/* directory
+* You WILL need to place chromedriver from [here](https://code.google.com/p/chromedriver/) in the **lib/** directory
 * You might need to create your first test using the 'create' option of 'pysel.py'
