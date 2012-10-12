@@ -1,10 +1,12 @@
 *.py[co]
 output/
+
 bin/chromedriver.log
 dev/chromedriver.log
 lib/chromedriver
 test/*.json
 test/import/*.json
+
 # Packages
 *.egg
 *.egg-info

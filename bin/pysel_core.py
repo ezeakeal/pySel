@@ -12,7 +12,7 @@ import texttable as tt
 from colorama import Fore, Back, Style
 from time import strftime as date
 
-import pysel_util_test    as util_test
+import pysel_util_core    as util_core
 import pysel_util_create  as util_create
 
 try:
@@ -103,31 +103,6 @@ def quitDriver():
   DRIVER.quit() 
 
 ######################################################################
-# Create directory structure for file if folders are missing
-######################################################################
-def mkdir(path):
-  if not os.path.isdir(path):
-    logging.warning("OS:\tCreating Directory (%s) " % path)
-    os.makedirs(path)
-
-  os.chown(path, UID, GID)
-
-def clearOutput(path, recursive=False):
-  if not os.path.isdir(path):
-    logging.warning("OS:\tDirectory does not exist (%s) " % path)
-    return
-  for delObj in os.listdir(path):
-    delPath = os.path.join(path, delObj)
-    try:
-        if (not recursive):
-          if os.path.isfile(delPath):
-            os.unlink(delPath)
-        else:
-          os.unlink(delPath)
-    except Exception, e:
-      core.raiseError("Error deleting files!", e)
-
-######################################################################
 # Raise an Error in the manner which you are acustomed to
 ######################################################################
 def raiseError(str, data=None):
@@ -146,17 +121,6 @@ def raiseWarning(str, data=None):
   cprint("\nWarning: %s " % str, 'yellow')
   if data:
     cprint(json.dumps(data, sort_keys=True, indent=4), 'cyan')
-
-######################################################################
-# Baby function to draw progress bar given a max and current value
-######################################################################
-def drawProgress(current, maxNum):
-  barWidth = int(int((os.popen('stty size', 'r').read().split())[1]) - 25)
-  countComplete = int(current*barWidth/maxNum)
-  countIdle = int(barWidth-countComplete)
-  progressBar = '[' + ('#'*countComplete) + ('-'*countIdle) + ']'
-  sys.stdout.write("\rStep: (%i/%i) %s" % (current, maxNum, progressBar))
-  sys.stdout.flush()
 
 ######################################################################
 # Summarise test results with various info
@@ -184,37 +148,6 @@ def endSummary(reportPath):
   cprint(os.path.join(DIR_LOG, FILE_LOG + '.' + EXT_LOG), "cyan")
   cprint("##################################", sumCol)
 
-######################################################################
-# Display the steps in a test, indicating what ones have been completed optionally
-######################################################################
-def displayTest(testObject, offset=0, currentStep=0, numSteps=None):
-  testSteps = testObject.get('steps')
-  tab = tt.Texttable(max_width=1000)
-  headerRow = ["#", "Command", "Value", "Parent", "Selector"]
-  tab.header(headerRow)
-  
-  if numSteps:
-    numSteps = offset + numSteps
-  testSteps=testSteps[offset:numSteps]
-
-  stepNum=offset
-  for step in testSteps:
-    row = []
-    row.append(stepNum+1)
-
-    step_com = step.keys()[0]
-    stepData = step[step_com]
-    step_val = stepData["value"] if "value" in stepData.keys() else ""
-    step_pnt = json.dumps(stepData["parent"]) if "parent" in stepData.keys() else ""
-    step_str = json.dumps(stepData["selector"]) if "selector" in stepData.keys() else ""
-
-    row.append(step_com)
-    row.append(step_val)
-    row.append(step_pnt)
-    row.append(step_str)
-    tab.add_row(row)
-    stepNum = stepNum + 1
-  print Style.BRIGHT + Fore.CYAN + tab.draw() + Style.RESET_ALL
 #---------------------------------------------------------------------
 # Offer the User to abandon the test as is in case of an error!
 #---------------------------------------------------------------------
@@ -227,41 +160,6 @@ def suggestContinue():
   else:
     stepNum = raw_input("Enter Step Number To Continue From: ")
     return int(stepNum) - 1
-
-#---------------------------------------------------------------------
-# Get a list of available tests
-#---------------------------------------------------------------------
-def getTestList():
-  testList=[]
-  for root, subFolders, files in os.walk(DIR_TEST):
-    for f in files:
-      f = os.path.join(root,f)
-      if f.endswith('.json'):
-        testList.append(f)
-  return testList
-
-#---------------------------------------------------------------------
-# Draw a table of available test names
-#---------------------------------------------------------------------
-def drawTestTable(testList):
-  tab = tt.Texttable(max_width=1000)
-  headerRow = ["#", "TestName", "StepCount"]
-  tab.header(headerRow)
-
-  for index, f in enumerate(testList):
-    try:
-      row = []
-      numSteps = "NA"
-      with open(f, 'r') as testFile:
-        testJson = json.load(testFile)
-        numSteps = len(testJson['steps'])
-      row.append(index+1)
-      row.append(f)
-      row.append(numSteps)
-      tab.add_row(row)
-    except Exception, e:
-      logging.error("Error reading json file: (%s): %s" % (f, e))
-  print Fore.BLUE + tab.draw() + Style.RESET_ALL
 
 ######################################################################
 # Take a screenshot
@@ -285,8 +183,8 @@ def runTest(testName):
   exitCode = 0
 
   DIR_REPORT = os.path.join(DIR_REPORT, testName)
-  mkdir(DIR_REPORT)
-  clearOutput(DIR_REPORT)
+  util_core.mkdir(DIR_REPORT)
+  util_core.clearDirectory(DIR_REPORT, recursive)
 
   # Check if file is already reachable using the file name given.
   try:
@@ -294,13 +192,13 @@ def runTest(testName):
     
     logging.debug('\nTEST:\tName=%s' % (testName))
     logging.debug('Processing: %s' % (testName))
-    testPath = os.path.join(core.DIR_TEST, testName+'.'+core.EXT_TEST) 
-    testObject = util_test.loadTestfile(testPath)
+    testPath = os.path.join(DIR_TEST, testName+'.'+EXT_TEST) 
+    testObject = util_core.loadTestfile(testPath)
     
     logging.info("TEST:\tTest File Loaded! %s" % testName)
-    displayTest(testObject)
+    util_core.displayTest(testObject)
     
-    util_test.executeTest(testName, testObject)
+    executeTest(testName, testObject)
     exitMsg = 'Test processed with overall status: %s' % (exitCode)
   except:
     exitCode = PYSEL_SEV1
@@ -313,7 +211,46 @@ def runTest(testName):
   return exitCode
 
 ######################################################################
-# Find and load test
+# Execute the specified test by sending the appropriate HTTP request
+######################################################################
+def manageStep(step):
+  stepType = step.keys()[0]
+  logging.debug("TEST:\tRunning step: %s" % stepType)
+  logging.info(json.dumps(step, sort_keys=True, indent=4))
+
+  stepData = step[stepType]
+
+  methodToCall = getattr(directives, stepType)
+  try:
+    result = methodToCall(stepData)
+    takeScreenShot()
+    return PYSEL_OK, result
+  except Exception, e:
+    takeScreenShot("ERROR")
+    return PYSEL_SEV5, e
+  
+######################################################################
+# Once a URL has been generated - or otherwise ready - run the test
+######################################################################
+def executeTest(testName, testObject):
+  testName = os.path.basename(testName)
+  testSteps = testObject.get('steps')
+  numSteps = len(testSteps)
+  for currentStep in range(numSteps):
+    drawProgress(currentStep, numSteps)
+
+    step = testSteps[currentStep]
+    status, output = manageStep(step)
+    if (status != PYSEL_OK):
+      logging.error("Error detected: %s" % output)
+      raiseError("Error in Step %s. Sub-section of steps shown below:" % currentStep)
+      displayTest(testObject, offset=currentStep-1, currentStep=currentStep, numSteps=3)
+      currentStep = suggestContinue()
+    else:
+      currentStep = currentStep + 1
+  drawProgress(currentStep, numSteps)
+  
+######################################################################
 # Prompt Loop to interact with user
 ######################################################################
 def createTest():
@@ -323,6 +260,9 @@ def createTest():
   IMPLICIT_WAIT = 3
   initDriver()
 
+  util_create.DRIVER = DRIVER
+  util_create.TEST_BASE_DIR = DIR_TEST
+  
   testObject = {"steps": []}
   
   choices = [
@@ -338,10 +278,14 @@ def createTest():
     util_create._displayHelp("main")
     
     choice = util_create._promptChoice(choices)
-    if not choice:
-      choice = "quit"
+    if not choice or choice == "quit":
+      break
     methodToCall = getattr(util_create, "create_%s" % choice)
-    # I know its a bit weird, but creating tests would rely on some functionality of the testing utility for interactivity
-    testObject = methodToCall(testObject, util_test) 
-
+    try:
+      testObject = methodToCall(testObject) 
+    except Exception, e:
+      raiseError("Error occured! Quitting", e)
+      break
+  
+  quitDriver()
   return exitCode
