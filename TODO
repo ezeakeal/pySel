@@ -1,0 +1,6 @@
+* Wrap all tests in dynamically unit testing
+	* Add reporting for unit testing
+		* Create report generation with screenshots and unit test reports
+* Add email alerts
+* Add statistics
+* Step success/failure rate - graphs?
